@@ -8,7 +8,7 @@ type Session = { roomCode: string; playerId: string };
 const sessionKey = "are-we-friends-session";
 
 function teamName(team: Team) {
-  return team === "a" ? "Team Sun" : "Team Moon";
+  return team === "a" ? "Team Tropic" : "Team Thunder";
 }
 
 function scoreFor(state: GameState, team: Team) {
