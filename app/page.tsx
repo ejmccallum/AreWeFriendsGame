@@ -140,7 +140,7 @@ export default function Home() {
           <div className="rule-row"><span>4 players</span><span>2 teams</span><span>60 seconds</span></div>
           {error && <p className="error">{error}</p>}
           <form className="entry-form" onSubmit={(event) => createOrJoin("create", event)}>
-            <label>Your name<input value={name} maxLength={24} onChange={(event) => setName(event.target.value)} placeholder="Ethan" required /></label>
+            <label>Your name<input value={name} maxLength={24} onChange={(event) => setName(event.target.value)} placeholder="Enter Name" required /></label>
             <button className="primary-button" disabled={busy}>{busy ? "One sec..." : "Create a game"}</button>
           </form>
           <div className="divider"><span>or join friends</span></div>
