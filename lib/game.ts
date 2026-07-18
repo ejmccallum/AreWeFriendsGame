@@ -18,6 +18,7 @@ export type Room = {
   durationSeconds: number;
   scoreA: number;
   scoreB: number;
+  gameSeed: string;
 };
 
 export type TeamResult = {
@@ -96,8 +97,36 @@ export const questionTemplates = [
 "What is {name}'s hottest take?",
 ];
 
-export function promptFor(name: string, roundNumber: number) {
-  return questionTemplates[(roundNumber - 1) % questionTemplates.length].replace("{name}", name);
+function createSeededRandom(seed: string) {
+  let state = 2166136261;
+  for (const character of seed) {
+    state ^= character.charCodeAt(0);
+    state = Math.imul(state, 16777619);
+  }
+
+  return () => {
+    state += 0x6d2b79f5;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function shuffledQuestionIndexes(gameSeed: string) {
+  const indexes = questionTemplates.map((_, index) => index);
+  const random = createSeededRandom(gameSeed);
+  for (let index = indexes.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(random() * (index + 1));
+    [indexes[index], indexes[swapIndex]] = [indexes[swapIndex], indexes[index]];
+  }
+  return indexes;
+}
+
+export function promptFor(name: string, gameSeed: string, roundNumber: number) {
+  const indexes = shuffledQuestionIndexes(gameSeed);
+  const questionIndex = indexes[(roundNumber - 1) % indexes.length];
+  return questionTemplates[questionIndex].replace("{name}", name);
 }
 
 export function normalizeAnswer(answer: string) {

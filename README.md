@@ -17,3 +17,9 @@ Push this project to GitHub, import it in Vercel, and add the same two environme
 - A round lasts 60 seconds by default; the host can select 30, 60, or 90 seconds before starting.
 - On timeout, unanswered players receive a blank answer and the game moves to the reveal/voting phase.
 - Exact normalized answers score automatically. Different wording can be approved by a vote of at least three of the four players.
+- Questions are shuffled per match and never repeat until the question bank has been exhausted.
+- After a completed game, the host can start a rematch with the same teams or return everyone to the lobby to remake teams.
+
+## Updating an existing Supabase project
+
+After deploying this version, run `supabase/schema.sql` in the Supabase SQL Editor again. Its safe migration adds the `game_seed` column used to keep each match's question order synchronized.

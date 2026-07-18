@@ -12,6 +12,7 @@ type RawRoom = {
   duration_seconds: number;
   score_a: number;
   score_b: number;
+  game_seed: string;
 };
 
 type RawPlayer = { id: string; display_name: string; team: Team | null; joined_at: string };
@@ -34,7 +35,8 @@ function toRoom(row: RawRoom): Room {
     roundStartedAt: row.round_started_at,
     durationSeconds: row.duration_seconds,
     scoreA: row.score_a,
-    scoreB: row.score_b
+    scoreB: row.score_b,
+    gameSeed: row.game_seed
   };
 }
 
@@ -161,7 +163,7 @@ async function getState(code: string, playerId: string): Promise<GameState | nul
         return {
           team,
           targetName: target?.displayName ?? "your teammate",
-          prompt: promptFor(target?.displayName ?? "your teammate", room.roundNumber),
+          prompt: promptFor(target?.displayName ?? "your teammate", room.gameSeed, room.roundNumber),
           answers: teamAnswers,
           exactMatch: isExact,
           needsVote,
@@ -209,6 +211,14 @@ async function finishVoting(room: Room, players: Player[]) {
     .eq("code", room.code)
     .eq("phase", "voting");
   if (error) throw error;
+}
+
+async function clearMatchData(code: string) {
+  const database = supabaseAdmin();
+  const { error: voteError } = await database.from("round_votes").delete().eq("room_code", code);
+  if (voteError) throw voteError;
+  const { error: answerError } = await database.from("round_answers").delete().eq("room_code", code);
+  if (answerError) throw answerError;
 }
 
 export async function GET(request: Request, context: { params: Promise<{ code: string }> }) {
@@ -264,7 +274,7 @@ export async function POST(request: Request, context: { params: Promise<{ code: 
       const roundLimit = [4, 6, 8, 10].includes(Number(body.roundLimit)) ? Number(body.roundLimit) : 8;
       const { error } = await database
         .from("rooms")
-        .update({ phase: "answering", round_number: 1, duration_seconds: durationSeconds, round_limit: roundLimit, round_started_at: new Date().toISOString() })
+        .update({ phase: "answering", round_number: 1, duration_seconds: durationSeconds, round_limit: roundLimit, round_started_at: new Date().toISOString(), game_seed: crypto.randomUUID() })
         .eq("code", code);
       if (error) throw error;
     } else if (action === "answer") {
@@ -314,6 +324,24 @@ export async function POST(request: Request, context: { params: Promise<{ code: 
           : { phase: "answering", round_number: room.roundNumber + 1, round_started_at: new Date().toISOString() })
         .eq("code", code);
       if (error) throw error;
+    } else if (action === "rematch") {
+      if (me.id !== room.hostPlayerId || room.phase !== "finished") return apiError("Only the host can start a rematch.", 403);
+      await clearMatchData(code);
+      const { error } = await database
+        .from("rooms")
+        .update({ phase: "answering", round_number: 1, score_a: 0, score_b: 0, round_started_at: new Date().toISOString(), game_seed: crypto.randomUUID() })
+        .eq("code", code);
+      if (error) throw error;
+    } else if (action === "remake-teams") {
+      if (me.id !== room.hostPlayerId || room.phase !== "finished") return apiError("Only the host can remake teams.", 403);
+      await clearMatchData(code);
+      const { error: playerError } = await database.from("players").update({ team: null }).eq("room_code", code);
+      if (playerError) throw playerError;
+      const { error: roomError } = await database
+        .from("rooms")
+        .update({ phase: "lobby", round_number: 0, score_a: 0, score_b: 0, round_started_at: null })
+        .eq("code", code);
+      if (roomError) throw roomError;
     } else {
       return apiError("Unknown game action.");
     }

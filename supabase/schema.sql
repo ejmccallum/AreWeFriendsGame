@@ -10,6 +10,7 @@ create table if not exists rooms (
   duration_seconds integer not null default 60 check (duration_seconds between 15 and 180),
   score_a integer not null default 0,
   score_b integer not null default 0,
+  game_seed text not null default gen_random_uuid()::text,
   created_at timestamptz not null default now()
 );
 
@@ -49,3 +50,5 @@ alter table rooms enable row level security;
 alter table players enable row level security;
 alter table round_answers enable row level security;
 alter table round_votes enable row level security;
+
+alter table rooms add column if not exists game_seed text not null default gen_random_uuid()::text;

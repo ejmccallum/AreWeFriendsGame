@@ -170,7 +170,7 @@ export default function Home() {
       {game.room.phase === "lobby" && <Lobby game={game} teams={teams} isHost={isHost} durationSeconds={durationSeconds} roundLimit={roundLimit} setTeams={setTeams} setDurationSeconds={setDurationSeconds} setRoundLimit={setRoundLimit} start={() => act("start", { durationSeconds, roundLimit, assignments: Object.entries(teams).map(([playerId, team]) => ({ playerId, team })) })} assign={() => act("assign", { assignments: Object.entries(teams).map(([playerId, team]) => ({ playerId, team })) })} busy={busy} />}
       {game.room.phase === "answering" && <AnswerPhase game={game} targetName={myTarget?.displayName ?? "your teammate"} answer={answer} setAnswer={setAnswer} submitted={game.hasAnswered} remainingSeconds={remainingSeconds} submit={() => act("answer", { answer })} busy={busy} />}
       {game.room.phase === "voting" && <VotingPhase game={game} vote={(team, counts) => act("vote", { team, counts })} busy={busy} />}
-      {(game.room.phase === "reveal" || game.room.phase === "finished") && <RevealPhase game={game} isHost={isHost} next={() => act("next")} busy={busy} />}
+      {(game.room.phase === "reveal" || game.room.phase === "finished") && <RevealPhase game={game} isHost={isHost} next={() => act("next")} rematch={() => act("rematch")} remakeTeams={() => act("remake-teams")} busy={busy} />}
     </main>
   );
 }
@@ -184,7 +184,7 @@ function Lobby({ game, teams, isHost, durationSeconds, roundLimit, setTeams, set
 }
 
 function AnswerPhase({ game, targetName, answer, setAnswer, submitted, remainingSeconds, submit, busy }: { game: GameState; targetName: string; answer: string; setAnswer: (value: string) => void; submitted: boolean; remainingSeconds: number; submit: () => void; busy: boolean }) {
-  const prompt = promptFor(targetName, game.room.roundNumber);
+  const prompt = promptFor(targetName, game.room.gameSeed, game.room.roundNumber);
   return <section className="panel round-panel"><div className={`timer ${remainingSeconds <= 10 ? "danger" : ""}`}><span>TIME LEFT</span><strong>0:{String(remainingSeconds).padStart(2, "0")}</strong></div><p className="eyebrow">ROUND {game.room.roundNumber} OF {game.room.roundLimit}</p><h2>{prompt}</h2><p className="muted">You and your teammate are answering independently. Don&apos;t give anything away.</p><div className="answer-box"><input value={answer} maxLength={120} disabled={submitted || busy} onChange={(event) => setAnswer(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") submit(); }} placeholder="Type your best guess..." /><button className="primary-button" disabled={!answer.trim() || submitted || busy} onClick={submit}>{submitted ? "Locked in" : busy ? "Saving..." : "Lock it in"}</button></div><div className="submission-status"><strong>{game.answerCount}/4</strong> answers locked in <span>•</span> Everyone sees results together</div></section>;
 }
 
@@ -192,9 +192,9 @@ function VotingPhase({ game, vote, busy }: { game: GameState; vote: (team: Team,
   return <section className="panel voting"><p className="eyebrow">JURY DUTY</p><h2>Do these answers mean the same thing?</h2><p className="muted">A close match needs at least 3 out of 4 votes to earn the point.</p><Results game={game} showVote vote={vote} busy={busy} /></section>;
 }
 
-function RevealPhase({ game, isHost, next, busy }: { game: GameState; isHost: boolean; next: () => void; busy: boolean }) {
+function RevealPhase({ game, isHost, next, rematch, remakeTeams, busy }: { game: GameState; isHost: boolean; next: () => void; rematch: () => void; remakeTeams: () => void; busy: boolean }) {
   const winner = game.room.phase === "finished" ? (game.room.scoreA === game.room.scoreB ? "It’s a tie!" : game.room.scoreA > game.room.scoreB ? "Team Tropic wins!" : "Team Thunder wins!") : "Round results";
-  return <section className="panel reveal"><p className="eyebrow">{game.room.phase === "finished" ? "FINAL SCORE" : "THE REVEAL"}</p><h2>{winner}</h2><Results game={game} showVote={false} vote={() => undefined} busy={busy} />{isHost && game.room.phase === "reveal" && <button className="primary-button next-button" onClick={next} disabled={busy}>{game.room.roundNumber === game.room.roundLimit ? "See final score" : "Next round"}</button>}{!isHost && game.room.phase === "reveal" && <p className="waiting">Waiting for the host to start the next round…</p>}</section>;
+  return <section className="panel reveal"><p className="eyebrow">{game.room.phase === "finished" ? "FINAL SCORE" : "THE REVEAL"}</p><h2>{winner}</h2><Results game={game} showVote={false} vote={() => undefined} busy={busy} />{isHost && game.room.phase === "reveal" && <button className="primary-button next-button" onClick={next} disabled={busy}>{game.room.roundNumber === game.room.roundLimit ? "See final score" : "Next round"}</button>}{!isHost && game.room.phase === "reveal" && <p className="waiting">Waiting for the host to start the next round…</p>}{isHost && game.room.phase === "finished" && <div className="host-actions final-actions"><button className="secondary-button" onClick={remakeTeams} disabled={busy}>Remake teams</button><button className="primary-button" onClick={rematch} disabled={busy}>Rematch</button></div>}{!isHost && game.room.phase === "finished" && <p className="waiting">Waiting for the host to choose the next game…</p>}</section>;
 }
 
 function Results({ game, showVote, vote, busy }: { game: GameState; showVote: boolean; vote: (team: Team, counts: boolean) => void; busy: boolean }) {
