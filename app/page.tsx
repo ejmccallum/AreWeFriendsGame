@@ -136,7 +136,7 @@ export default function Home() {
         <section className="hero-card">
           <p className="eyebrow">2V2 FRIENDSHIP SHOWDOWN</p>
           <h1>Are we<br /><em>friends?</em></h1>
-          <p className="intro">Will your teammate know exactly what you&apos;d say? Find out in a quick, chaotic game for four.</p>
+          <p className="intro">Test and compete to find out which duo are better friends</p>
           <div className="rule-row"><span>4 players</span><span>2 teams</span><span>60 seconds</span></div>
           {error && <p className="error">{error}</p>}
           <form className="entry-form" onSubmit={(event) => createOrJoin("create", event)}>
