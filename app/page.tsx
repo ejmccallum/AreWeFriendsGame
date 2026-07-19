@@ -1,7 +1,7 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
-import { promptFor, type GameState, type Team } from "@/lib/game";
+import { FormEvent, useEffect, useState } from "react";
+import { type GameState, type Team } from "@/lib/game";
 
 type Session = { roomCode: string; playerId: string };
 
@@ -29,12 +29,6 @@ export default function Home() {
   const [roundLimit, setRoundLimit] = useState(8);
 
   const isHost = Boolean(game && session && game.room.hostPlayerId === session.playerId);
-  const myTarget = useMemo(() => {
-    if (!game?.me.team || game.room.phase !== "answering") return null;
-    const teammates = game.players.filter((player) => player.team === game.me.team);
-    return teammates[(game.room.roundNumber - 1) % 2] ?? null;
-  }, [game]);
-
   useEffect(() => {
     const stored = window.sessionStorage.getItem(sessionKey);
     if (stored) {
@@ -168,7 +162,7 @@ export default function Home() {
       </section>
       {error && <p className="error game-error">{error}</p>}
       {game.room.phase === "lobby" && <Lobby game={game} teams={teams} isHost={isHost} durationSeconds={durationSeconds} roundLimit={roundLimit} setTeams={setTeams} setDurationSeconds={setDurationSeconds} setRoundLimit={setRoundLimit} start={() => act("start", { durationSeconds, roundLimit, assignments: Object.entries(teams).map(([playerId, team]) => ({ playerId, team })) })} assign={() => act("assign", { assignments: Object.entries(teams).map(([playerId, team]) => ({ playerId, team })) })} busy={busy} />}
-      {game.room.phase === "answering" && <AnswerPhase game={game} targetName={myTarget?.displayName ?? "your teammate"} answer={answer} setAnswer={setAnswer} submitted={game.hasAnswered} remainingSeconds={remainingSeconds} submit={() => act("answer", { answer })} busy={busy} />}
+      {game.room.phase === "answering" && <AnswerPhase game={game} prompt={game.currentPrompt ?? "Get ready for the next question"} answer={answer} setAnswer={setAnswer} submitted={game.hasAnswered} remainingSeconds={remainingSeconds} submit={() => act("answer", { answer })} busy={busy} />}
       {game.room.phase === "voting" && <VotingPhase game={game} vote={(team, counts) => act("vote", { team, counts })} busy={busy} />}
       {(game.room.phase === "reveal" || game.room.phase === "finished") && <RevealPhase game={game} isHost={isHost} next={() => act("next")} rematch={() => act("rematch")} remakeTeams={() => act("remake-teams")} busy={busy} />}
     </main>
@@ -183,8 +177,7 @@ function Lobby({ game, teams, isHost, durationSeconds, roundLimit, setTeams, set
   </section>;
 }
 
-function AnswerPhase({ game, targetName, answer, setAnswer, submitted, remainingSeconds, submit, busy }: { game: GameState; targetName: string; answer: string; setAnswer: (value: string) => void; submitted: boolean; remainingSeconds: number; submit: () => void; busy: boolean }) {
-  const prompt = promptFor(targetName, game.room.gameSeed, game.room.roundNumber);
+function AnswerPhase({ game, prompt, answer, setAnswer, submitted, remainingSeconds, submit, busy }: { game: GameState; prompt: string; answer: string; setAnswer: (value: string) => void; submitted: boolean; remainingSeconds: number; submit: () => void; busy: boolean }) {
   return <section className="panel round-panel"><div className={`timer ${remainingSeconds <= 10 ? "danger" : ""}`}><span>TIME LEFT</span><strong>0:{String(remainingSeconds).padStart(2, "0")}</strong></div><p className="eyebrow">ROUND {game.room.roundNumber} OF {game.room.roundLimit}</p><h2>{prompt}</h2><p className="muted">You and your teammate are answering independently. Don&apos;t give anything away.</p><div className="answer-box"><input value={answer} maxLength={120} disabled={submitted || busy} onChange={(event) => setAnswer(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") submit(); }} placeholder="Type your best guess..." /><button className="primary-button" disabled={!answer.trim() || submitted || busy} onClick={submit}>{submitted ? "Locked in" : busy ? "Saving..." : "Lock it in"}</button></div><div className="submission-status"><strong>{game.answerCount}/4</strong> answers locked in <span>•</span> Everyone sees results together</div></section>;
 }
 

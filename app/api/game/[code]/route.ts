@@ -130,6 +130,9 @@ async function getState(code: string, playerId: string): Promise<GameState | nul
   const { room, players } = details;
   const me = players.find((player) => player.id === playerId);
   if (!me) return null;
+  const currentTarget = room.phase === "answering" && me.team
+    ? targetFor(me.team, room.roundNumber, players)
+    : null;
   const database = supabaseAdmin();
   let answers: RawAnswer[] = [];
   let votes: RawVote[] = [];
@@ -180,6 +183,7 @@ async function getState(code: string, playerId: string): Promise<GameState | nul
     me,
     answerCount: answers.length,
     hasAnswered: answers.some((answer) => answer.player_id === playerId),
+    currentPrompt: currentTarget ? promptFor(currentTarget.displayName, room.gameSeed, room.roundNumber) : null,
     teamResults
   };
 }

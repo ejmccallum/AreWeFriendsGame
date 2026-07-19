@@ -40,6 +40,7 @@ export type GameState = {
   me: Player;
   answerCount: number;
   hasAnswered: boolean;
+  currentPrompt: string | null;
   teamResults: TeamResult[];
 };
 
