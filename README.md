@@ -18,6 +18,7 @@ Push this project to GitHub, import it in Vercel, and add the same two environme
 - On timeout, unanswered players receive a blank answer and the game moves to the reveal/voting phase.
 - Exact normalized answers score automatically. Different wording can be approved by a vote of at least three of the four players.
 - Questions are shuffled per match and never repeat until the question bank has been exhausted.
+- Hosts can choose Wholesome, Comedic, or Everything question packs for either game mode.
 - After a completed game, the host can start a rematch with the same teams or return everyone to the lobby to remake teams.
 - Spotlight mode supports 2–8 players. Each answerer gets 3–6 turns, and every other player earns one point for an exact normalized match.
 

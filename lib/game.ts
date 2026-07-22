@@ -1,5 +1,6 @@
 export type Team = "a" | "b";
 export type GameMode = "teams" | "spotlight";
+export type QuestionPack = "all" | "wholesome" | "comedic";
 export type Phase = "lobby" | "answering" | "voting" | "reveal" | "finished";
 
 export type Player = {
@@ -23,6 +24,7 @@ export type Room = {
   gameSeed: string;
   gameMode: GameMode;
   roundsPerPlayer: number;
+  questionPack: QuestionPack;
 };
 
 export type TeamResult = {
@@ -183,6 +185,26 @@ export const questionTemplates = [
 "What does {name} do that always makes their friends laugh?"
 ];
 
+export const questionPackDetails: Record<QuestionPack, { label: string; description: string }> = {
+  all: { label: "Everything", description: "A mixed deck of every question." },
+  wholesome: { label: "Wholesome", description: "Dreams, favorites, habits, and feel-good friendship questions." },
+  comedic: { label: "Comedic", description: "Chaotic, weird, embarrassing, and laugh-out-loud questions." }
+};
+
+const comedicQuestionPattern = /funny|roast|ridiculous|weird|silly|chaos|party|drink|drunk|arrested|yell|argument|dance|horror|zombie|ghost|alien|kicked out|viral|tiktok|conspiracy|dick|body part|embarrass|guilty|warning label|villain|superpower|restaurant|pet|uber|hangover|flirt|exes|dating|red flag|lying|apology|camera roll|search history|nickname|overly confident|irrational|irresponsible|unread|notes app|screen time|browser tab|lost|flight delay|road trip|nervous habit|golf round|karaoke|video game|gossip|late|broke|stubborn|obsessed|awkward/i;
+
+export function templatesForPack(questionPack: QuestionPack) {
+  if (questionPack === "all") return questionTemplates;
+  const comedicTemplates = questionTemplates.filter((question) => comedicQuestionPattern.test(question));
+  return questionPack === "comedic"
+    ? comedicTemplates
+    : questionTemplates.filter((question) => !comedicQuestionPattern.test(question));
+}
+
+export function questionCountFor(questionPack: QuestionPack) {
+  return templatesForPack(questionPack).length;
+}
+
 function createSeededRandom(seed: string) {
   let state = 2166136261;
   for (const character of seed) {
@@ -199,8 +221,9 @@ function createSeededRandom(seed: string) {
   };
 }
 
-function shuffledQuestionIndexes(gameSeed: string) {
-  const indexes = questionTemplates.map((_, index) => index);
+function shuffledQuestionIndexes(gameSeed: string, questionPack: QuestionPack) {
+  const templates = templatesForPack(questionPack);
+  const indexes = templates.map((_, index) => index);
   const random = createSeededRandom(gameSeed);
   for (let index = indexes.length - 1; index > 0; index -= 1) {
     const swapIndex = Math.floor(random() * (index + 1));
@@ -209,10 +232,11 @@ function shuffledQuestionIndexes(gameSeed: string) {
   return indexes;
 }
 
-export function promptFor(name: string, gameSeed: string, roundNumber: number) {
-  const indexes = shuffledQuestionIndexes(gameSeed);
+export function promptFor(name: string, gameSeed: string, roundNumber: number, questionPack: QuestionPack) {
+  const templates = templatesForPack(questionPack);
+  const indexes = shuffledQuestionIndexes(gameSeed, questionPack);
   const questionIndex = indexes[(roundNumber - 1) % indexes.length];
-  return questionTemplates[questionIndex].replace("{name}", name);
+  return templates[questionIndex].replace("{name}", name);
 }
 
 export function normalizeAnswer(answer: string) {

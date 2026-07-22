@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { normalizeAnswer, promptFor, type GameMode, type GameState, type Player, type Room, type Team, type TeamResult } from "@/lib/game";
+import { normalizeAnswer, promptFor, questionCountFor, type GameMode, type GameState, type Player, type QuestionPack, type Room, type Team, type TeamResult } from "@/lib/game";
 import { supabaseAdmin } from "@/lib/supabase";
 
 type RawRoom = {
@@ -15,6 +15,7 @@ type RawRoom = {
   game_seed: string;
   game_mode: GameMode;
   rounds_per_player: number;
+  question_pack: QuestionPack;
 };
 
 type RawPlayer = { id: string; display_name: string; team: Team | null; score: number; joined_at: string };
@@ -40,7 +41,8 @@ function toRoom(row: RawRoom): Room {
     scoreB: row.score_b,
     gameSeed: row.game_seed,
     gameMode: row.game_mode,
-    roundsPerPlayer: row.rounds_per_player
+    roundsPerPlayer: row.rounds_per_player,
+    questionPack: row.question_pack
   };
 }
 
@@ -212,7 +214,7 @@ async function getState(code: string, playerId: string): Promise<GameState | nul
         return {
           team,
           targetName: target?.displayName ?? "your teammate",
-          prompt: promptFor(target?.displayName ?? "your teammate", room.gameSeed, room.roundNumber),
+          prompt: promptFor(target?.displayName ?? "your teammate", room.gameSeed, room.roundNumber, room.questionPack),
           answers: teamAnswers,
           exactMatch: isExact,
           needsVote,
@@ -245,7 +247,7 @@ async function getState(code: string, playerId: string): Promise<GameState | nul
     me,
     answerCount: answers.length,
     hasAnswered: answers.some((answer) => answer.player_id === playerId),
-    currentPrompt: currentTarget ? promptFor(currentTarget.displayName, room.gameSeed, room.roundNumber) : null,
+    currentPrompt: currentTarget ? promptFor(currentTarget.displayName, room.gameSeed, room.roundNumber, room.questionPack) : null,
     teamResults,
     spotlight
   };
@@ -317,6 +319,11 @@ export async function POST(request: Request, context: { params: Promise<{ code: 
       const mode = body.mode === "spotlight" ? "spotlight" : "teams";
       const { error } = await database.from("rooms").update({ game_mode: mode }).eq("code", code);
       if (error) throw error;
+    } else if (action === "set-question-pack") {
+      if (me.id !== room.hostPlayerId || room.phase !== "lobby") return apiError("Only the host can choose a question pack.", 403);
+      const questionPack: QuestionPack = ["all", "wholesome", "comedic"].includes(body.questionPack) ? body.questionPack : "all";
+      const { error } = await database.from("rooms").update({ question_pack: questionPack }).eq("code", code);
+      if (error) throw error;
     } else if (action === "assign") {
       if (room.gameMode !== "teams") return apiError("Teams are only used in 2v2 mode.");
       if (me.id !== room.hostPlayerId || room.phase !== "lobby") return apiError("Only the host can set teams before the game starts.", 403);
@@ -335,14 +342,16 @@ export async function POST(request: Request, context: { params: Promise<{ code: 
       if (me.id !== room.hostPlayerId || room.phase !== "lobby") return apiError("Only the host can start from the lobby.", 403);
       const mode = body.mode === "spotlight" ? "spotlight" : "teams";
       const durationSeconds = [30, 60, 90].includes(Number(body.durationSeconds)) ? Number(body.durationSeconds) : 60;
+      const questionPack: QuestionPack = ["all", "wholesome", "comedic"].includes(body.questionPack) ? body.questionPack : "all";
       if (mode === "spotlight") {
         if (players.length < 2 || players.length > 8) return apiError("Spotlight needs between 2 and 8 players.");
         const roundsPerPlayer = [3, 4, 5, 6].includes(Number(body.roundsPerPlayer)) ? Number(body.roundsPerPlayer) : 3;
+        if (questionCountFor(questionPack) < players.length * roundsPerPlayer) return apiError("That question pack is too small for this many Spotlight rounds.");
         const { error: playerError } = await database.from("players").update({ team: null, score: 0 }).eq("room_code", code);
         if (playerError) throw playerError;
         const { error } = await database
           .from("rooms")
-          .update({ phase: "answering", game_mode: "spotlight", round_number: 1, round_limit: players.length * roundsPerPlayer, rounds_per_player: roundsPerPlayer, duration_seconds: durationSeconds, score_a: 0, score_b: 0, round_started_at: new Date().toISOString(), game_seed: crypto.randomUUID() })
+          .update({ phase: "answering", game_mode: "spotlight", question_pack: questionPack, round_number: 1, round_limit: players.length * roundsPerPlayer, rounds_per_player: roundsPerPlayer, duration_seconds: durationSeconds, score_a: 0, score_b: 0, round_started_at: new Date().toISOString(), game_seed: crypto.randomUUID() })
           .eq("code", code);
         if (error) throw error;
         const nextState = await getState(code, me.id);
@@ -359,9 +368,10 @@ export async function POST(request: Request, context: { params: Promise<{ code: 
         if (error) throw error;
       }
       const roundLimit = [4, 6, 8, 10].includes(Number(body.roundLimit)) ? Number(body.roundLimit) : 8;
+      if (questionCountFor(questionPack) < roundLimit) return apiError("That question pack is too small for this many rounds.");
       const { error } = await database
         .from("rooms")
-        .update({ phase: "answering", game_mode: "teams", round_number: 1, duration_seconds: durationSeconds, round_limit: roundLimit, round_started_at: new Date().toISOString(), game_seed: crypto.randomUUID() })
+        .update({ phase: "answering", game_mode: "teams", question_pack: questionPack, round_number: 1, duration_seconds: durationSeconds, round_limit: roundLimit, round_started_at: new Date().toISOString(), game_seed: crypto.randomUUID() })
         .eq("code", code);
       if (error) throw error;
     } else if (action === "answer") {
@@ -431,7 +441,7 @@ export async function POST(request: Request, context: { params: Promise<{ code: 
       if (playerError) throw playerError;
       const { error: roomError } = await database
         .from("rooms")
-        .update({ phase: "lobby", game_mode: "teams", round_number: 0, score_a: 0, score_b: 0, round_started_at: null })
+        .update({ phase: "lobby", game_mode: "teams", question_pack: "all", round_number: 0, score_a: 0, score_b: 0, round_started_at: null })
         .eq("code", code);
       if (roomError) throw roomError;
     } else {

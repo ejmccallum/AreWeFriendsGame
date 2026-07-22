@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { type GameMode, type GameState, type Team } from "@/lib/game";
+import { type GameMode, type GameState, type QuestionPack, type Team } from "@/lib/game";
 import { ModeLobby } from "./mode-lobby";
 import { SpotlightAnswerPhase, SpotlightReveal } from "./spotlight-mode";
 
@@ -31,6 +31,7 @@ export default function Home() {
   const [roundLimit, setRoundLimit] = useState(8);
   const [gameMode, setGameMode] = useState<GameMode>("teams");
   const [roundsPerPlayer, setRoundsPerPlayer] = useState(3);
+  const [questionPack, setQuestionPack] = useState<QuestionPack>("all");
 
   const isHost = Boolean(game && session && game.room.hostPlayerId === session.playerId);
   useEffect(() => {
@@ -77,6 +78,7 @@ export default function Home() {
   useEffect(() => {
     if (!game || game.room.phase !== "lobby") return;
     setGameMode(game.room.gameMode);
+    setQuestionPack(game.room.questionPack);
     setTeams((current) => {
       const next = { ...current };
       game.players.forEach((player, index) => {
@@ -170,7 +172,7 @@ export default function Home() {
         ))}
       </section>
       {error && <p className="error game-error">{error}</p>}
-      {game.room.phase === "lobby" && <ModeLobby game={game} teams={teams} isHost={isHost} gameMode={gameMode} roundsPerPlayer={roundsPerPlayer} durationSeconds={durationSeconds} roundLimit={roundLimit} setTeams={setTeams} setGameMode={(mode) => { setGameMode(mode); act("set-mode", { mode }); }} setRoundsPerPlayer={setRoundsPerPlayer} setDurationSeconds={setDurationSeconds} setRoundLimit={setRoundLimit} start={() => act("start", { mode: gameMode, durationSeconds, roundLimit, roundsPerPlayer, assignments: Object.entries(teams).map(([playerId, team]) => ({ playerId, team })) })} assign={() => act("assign", { assignments: Object.entries(teams).map(([playerId, team]) => ({ playerId, team })) })} busy={busy} />}
+      {game.room.phase === "lobby" && <ModeLobby game={game} teams={teams} isHost={isHost} gameMode={gameMode} questionPack={questionPack} roundsPerPlayer={roundsPerPlayer} durationSeconds={durationSeconds} roundLimit={roundLimit} setTeams={setTeams} setGameMode={(mode) => { setGameMode(mode); act("set-mode", { mode }); }} setQuestionPack={(pack) => { setQuestionPack(pack); act("set-question-pack", { questionPack: pack }); }} setRoundsPerPlayer={setRoundsPerPlayer} setDurationSeconds={setDurationSeconds} setRoundLimit={setRoundLimit} start={() => act("start", { mode: gameMode, questionPack, durationSeconds, roundLimit, roundsPerPlayer, assignments: Object.entries(teams).map(([playerId, team]) => ({ playerId, team })) })} assign={() => act("assign", { assignments: Object.entries(teams).map(([playerId, team]) => ({ playerId, team })) })} busy={busy} />}
       {game.room.phase === "answering" && (game.room.gameMode === "spotlight" ? <SpotlightAnswerPhase game={game} prompt={game.currentPrompt ?? "Get ready for the next question"} answer={answer} setAnswer={setAnswer} submitted={game.hasAnswered} remainingSeconds={remainingSeconds} submit={() => act("answer", { answer })} busy={busy} /> : <AnswerPhase game={game} prompt={game.currentPrompt ?? "Get ready for the next question"} answer={answer} setAnswer={setAnswer} submitted={game.hasAnswered} remainingSeconds={remainingSeconds} submit={() => act("answer", { answer })} busy={busy} />)}
       {game.room.phase === "voting" && <VotingPhase game={game} vote={(team, counts) => act("vote", { team, counts })} busy={busy} />}
       {(game.room.phase === "reveal" || game.room.phase === "finished") && (game.room.gameMode === "spotlight" ? <SpotlightReveal game={game} isHost={isHost} next={() => act("next")} rematch={() => act("rematch")} returnToLobby={() => act("remake-teams")} busy={busy} /> : <RevealPhase game={game} isHost={isHost} next={() => act("next")} rematch={() => act("rematch")} remakeTeams={() => act("remake-teams")} busy={busy} />)}
