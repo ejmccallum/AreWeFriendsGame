@@ -19,7 +19,8 @@ Push this project to GitHub, import it in Vercel, and add the same two environme
 - Exact normalized answers score automatically. Different wording can be approved by a vote of at least three of the four players.
 - Questions are shuffled per match and never repeat until the question bank has been exhausted.
 - After a completed game, the host can start a rematch with the same teams or return everyone to the lobby to remake teams.
+- Spotlight mode supports 2–8 players. Each answerer gets 3–6 turns, and every other player earns one point for an exact normalized match.
 
 ## Updating an existing Supabase project
 
-After deploying this version, run `supabase/schema.sql` in the Supabase SQL Editor again. Its safe migration adds the `game_seed` column used to keep each match's question order synchronized.
+After deploying this version, run `supabase/schema.sql` in the Supabase SQL Editor again. Its safe migrations add the state used to synchronize shuffled questions and Spotlight scoring.

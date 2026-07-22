@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { normalizeAnswer, promptFor, type GameState, type Player, type Room, type Team, type TeamResult } from "@/lib/game";
+import { normalizeAnswer, promptFor, type GameMode, type GameState, type Player, type Room, type Team, type TeamResult } from "@/lib/game";
 import { supabaseAdmin } from "@/lib/supabase";
 
 type RawRoom = {
@@ -13,9 +13,11 @@ type RawRoom = {
   score_a: number;
   score_b: number;
   game_seed: string;
+  game_mode: GameMode;
+  rounds_per_player: number;
 };
 
-type RawPlayer = { id: string; display_name: string; team: Team | null; joined_at: string };
+type RawPlayer = { id: string; display_name: string; team: Team | null; score: number; joined_at: string };
 type RawAnswer = { player_id: string; target_player_id: string; answer: string };
 type RawVote = { voter_id: string; team: Team; counts: boolean };
 
@@ -36,17 +38,25 @@ function toRoom(row: RawRoom): Room {
     durationSeconds: row.duration_seconds,
     scoreA: row.score_a,
     scoreB: row.score_b,
-    gameSeed: row.game_seed
+    gameSeed: row.game_seed,
+    gameMode: row.game_mode,
+    roundsPerPlayer: row.rounds_per_player
   };
 }
 
 function toPlayer(row: RawPlayer): Player {
-  return { id: row.id, displayName: row.display_name, team: row.team, joinedAt: row.joined_at };
+  return { id: row.id, displayName: row.display_name, team: row.team, score: row.score, joinedAt: row.joined_at };
 }
 
 function targetFor(team: Team, roundNumber: number, players: Player[]) {
   const teamPlayers = players.filter((player) => player.team === team);
   return teamPlayers[(roundNumber - 1) % 2];
+}
+
+function spotlightAnswerer(room: Room, players: Player[]) {
+  if (players.length === 0 || room.roundNumber < 1) return null;
+  const playerIndex = Math.floor((room.roundNumber - 1) / room.roundsPerPlayer) % players.length;
+  return players[playerIndex];
 }
 
 async function roomAndPlayers(code: string) {
@@ -56,7 +66,7 @@ async function roomAndPlayers(code: string) {
   if (!roomData) return null;
   const { data: playerData, error: playerError } = await database
     .from("players")
-    .select("id, display_name, team, joined_at")
+    .select("id, display_name, team, score, joined_at")
     .eq("room_code", code)
     .order("joined_at");
   if (playerError) throw playerError;
@@ -65,11 +75,12 @@ async function roomAndPlayers(code: string) {
 
 async function addBlankAnswers(room: Room, players: Player[]) {
   const database = supabaseAdmin();
+  const spotlightTarget = room.gameMode === "spotlight" ? spotlightAnswerer(room, players) : null;
   const records = players.map((player) => ({
     room_code: room.code,
     round_number: room.roundNumber,
     player_id: player.id,
-    target_player_id: targetFor(player.team as Team, room.roundNumber, players).id,
+    target_player_id: spotlightTarget?.id ?? targetFor(player.team as Team, room.roundNumber, players).id,
     answer: ""
   }));
   const { error } = await database.from("round_answers").upsert(records, { onConflict: "room_code,round_number,player_id", ignoreDuplicates: true });
@@ -94,6 +105,9 @@ function exactMatch(team: Team, room: Room, players: Player[], answers: RawAnswe
 }
 
 async function finalizeAnswers(room: Room, players: Player[]) {
+  if (room.gameMode === "spotlight") {
+    return finalizeSpotlightAnswers(room, players);
+  }
   await addBlankAnswers(room, players);
   const answers = await answersFor(room);
   const matchA = exactMatch("a", room, players, answers);
@@ -113,6 +127,36 @@ async function finalizeAnswers(room: Room, players: Player[]) {
   return (data ?? []).length > 0;
 }
 
+async function finalizeSpotlightAnswers(room: Room, players: Player[]) {
+  await addBlankAnswers(room, players);
+  const answerer = spotlightAnswerer(room, players);
+  if (!answerer) return false;
+  const answers = await answersFor(room);
+  const answererAnswer = answers.find((answer) => answer.player_id === answerer.id)?.answer ?? "";
+  const matchingPlayers = players.filter((player) => {
+    const answer = answers.find((entry) => entry.player_id === player.id)?.answer ?? "";
+    return player.id !== answerer.id && Boolean(answererAnswer) && Boolean(answer) && normalizeAnswer(answer) === normalizeAnswer(answererAnswer);
+  });
+  const database = supabaseAdmin();
+  const { data, error } = await database
+    .from("rooms")
+    .update({ phase: "reveal" })
+    .eq("code", room.code)
+    .eq("phase", "answering")
+    .select("code");
+  if (error) throw error;
+  if ((data ?? []).length === 0) return false;
+  for (const player of matchingPlayers) {
+    const { error: scoreError } = await database
+      .from("players")
+      .update({ score: player.score + 1 })
+      .eq("id", player.id)
+      .eq("room_code", room.code);
+    if (scoreError) throw scoreError;
+  }
+  return true;
+}
+
 async function syncGame(room: Room, players: Player[]) {
   if (room.phase !== "answering") return;
   const currentAnswers = await answersFor(room);
@@ -130,8 +174,10 @@ async function getState(code: string, playerId: string): Promise<GameState | nul
   const { room, players } = details;
   const me = players.find((player) => player.id === playerId);
   if (!me) return null;
-  const currentTarget = room.phase === "answering" && me.team
-    ? targetFor(me.team, room.roundNumber, players)
+  const currentTarget = room.phase === "answering"
+    ? room.gameMode === "spotlight"
+      ? spotlightAnswerer(room, players)
+      : me.team ? targetFor(me.team, room.roundNumber, players) : null
     : null;
   const database = supabaseAdmin();
   let answers: RawAnswer[] = [];
@@ -149,7 +195,7 @@ async function getState(code: string, playerId: string): Promise<GameState | nul
     votes = (data ?? []) as RawVote[];
   }
 
-  const teamResults: TeamResult[] = room.phase === "lobby" || room.phase === "answering"
+  const teamResults: TeamResult[] = room.gameMode === "spotlight" || room.phase === "lobby" || room.phase === "answering"
     ? []
     : (["a", "b"] as Team[]).map((team) => {
         const target = targetFor(team, room.roundNumber, players);
@@ -177,6 +223,22 @@ async function getState(code: string, playerId: string): Promise<GameState | nul
         };
       });
 
+  const answerer = room.gameMode === "spotlight" ? spotlightAnswerer(room, players) : null;
+  const answererAnswer = answerer ? answers.find((answer) => answer.player_id === answerer.id)?.answer ?? "" : "";
+  const spotlight = room.gameMode !== "spotlight" ? null : {
+    answerer,
+    turnForAnswerer: room.roundNumber ? ((room.roundNumber - 1) % room.roundsPerPlayer) + 1 : 0,
+    entries: room.phase === "answering" ? [] : players.map((player) => {
+      const answer = answers.find((entry) => entry.player_id === player.id)?.answer ?? "";
+      return {
+        playerId: player.id,
+        playerName: player.displayName,
+        answer,
+        matched: player.id === answerer?.id ? null : Boolean(answererAnswer) && Boolean(answer) && normalizeAnswer(answer) === normalizeAnswer(answererAnswer)
+      };
+    })
+  };
+
   return {
     room,
     players,
@@ -184,7 +246,8 @@ async function getState(code: string, playerId: string): Promise<GameState | nul
     answerCount: answers.length,
     hasAnswered: answers.some((answer) => answer.player_id === playerId),
     currentPrompt: currentTarget ? promptFor(currentTarget.displayName, room.gameSeed, room.roundNumber) : null,
-    teamResults
+    teamResults,
+    spotlight
   };
 }
 
@@ -249,7 +312,13 @@ export async function POST(request: Request, context: { params: Promise<{ code: 
 
     if (action === "sync") {
       await syncGame(room, players);
+    } else if (action === "set-mode") {
+      if (me.id !== room.hostPlayerId || room.phase !== "lobby") return apiError("Only the host can choose a game mode.", 403);
+      const mode = body.mode === "spotlight" ? "spotlight" : "teams";
+      const { error } = await database.from("rooms").update({ game_mode: mode }).eq("code", code);
+      if (error) throw error;
     } else if (action === "assign") {
+      if (room.gameMode !== "teams") return apiError("Teams are only used in 2v2 mode.");
       if (me.id !== room.hostPlayerId || room.phase !== "lobby") return apiError("Only the host can set teams before the game starts.", 403);
       const assignments = Array.isArray(body.assignments) ? body.assignments : [];
       if (assignments.length !== 4) return apiError("Assign all four players to a team.");
@@ -264,6 +333,21 @@ export async function POST(request: Request, context: { params: Promise<{ code: 
       }
     } else if (action === "start") {
       if (me.id !== room.hostPlayerId || room.phase !== "lobby") return apiError("Only the host can start from the lobby.", 403);
+      const mode = body.mode === "spotlight" ? "spotlight" : "teams";
+      const durationSeconds = [30, 60, 90].includes(Number(body.durationSeconds)) ? Number(body.durationSeconds) : 60;
+      if (mode === "spotlight") {
+        if (players.length < 2 || players.length > 8) return apiError("Spotlight needs between 2 and 8 players.");
+        const roundsPerPlayer = [3, 4, 5, 6].includes(Number(body.roundsPerPlayer)) ? Number(body.roundsPerPlayer) : 3;
+        const { error: playerError } = await database.from("players").update({ team: null, score: 0 }).eq("room_code", code);
+        if (playerError) throw playerError;
+        const { error } = await database
+          .from("rooms")
+          .update({ phase: "answering", game_mode: "spotlight", round_number: 1, round_limit: players.length * roundsPerPlayer, rounds_per_player: roundsPerPlayer, duration_seconds: durationSeconds, score_a: 0, score_b: 0, round_started_at: new Date().toISOString(), game_seed: crypto.randomUUID() })
+          .eq("code", code);
+        if (error) throw error;
+        const nextState = await getState(code, me.id);
+        return NextResponse.json(nextState);
+      }
       const assignments = Array.isArray(body.assignments) ? body.assignments : [];
       const ids = assignments.map((assignment: { playerId?: string }) => assignment.playerId);
       const teams = assignments.map((assignment: { team?: Team }) => assignment.team);
@@ -274,15 +358,14 @@ export async function POST(request: Request, context: { params: Promise<{ code: 
         const { error } = await database.from("players").update({ team: assignment.team }).eq("id", assignment.playerId).eq("room_code", code);
         if (error) throw error;
       }
-      const durationSeconds = [30, 60, 90].includes(Number(body.durationSeconds)) ? Number(body.durationSeconds) : 60;
       const roundLimit = [4, 6, 8, 10].includes(Number(body.roundLimit)) ? Number(body.roundLimit) : 8;
       const { error } = await database
         .from("rooms")
-        .update({ phase: "answering", round_number: 1, duration_seconds: durationSeconds, round_limit: roundLimit, round_started_at: new Date().toISOString(), game_seed: crypto.randomUUID() })
+        .update({ phase: "answering", game_mode: "teams", round_number: 1, duration_seconds: durationSeconds, round_limit: roundLimit, round_started_at: new Date().toISOString(), game_seed: crypto.randomUUID() })
         .eq("code", code);
       if (error) throw error;
     } else if (action === "answer") {
-      if (room.phase !== "answering" || !me.team) return apiError("Answers are not open right now.");
+      if (room.phase !== "answering" || (room.gameMode === "teams" && !me.team)) return apiError("Answers are not open right now.");
       const roundExpired = room.roundStartedAt
         ? Date.now() >= new Date(room.roundStartedAt).getTime() + room.durationSeconds * 1000
         : false;
@@ -292,7 +375,8 @@ export async function POST(request: Request, context: { params: Promise<{ code: 
       }
       const answer = typeof body.answer === "string" ? body.answer.trim().slice(0, 120) : "";
       if (!answer) return apiError("Type an answer before submitting.");
-      const target = targetFor(me.team, room.roundNumber, players);
+      const target = room.gameMode === "spotlight" ? spotlightAnswerer(room, players) : targetFor(me.team as Team, room.roundNumber, players);
+      if (!target) return apiError("Could not find this round's answerer.");
       const { error } = await database.from("round_answers").upsert({
         room_code: code,
         round_number: room.roundNumber,
@@ -331,19 +415,23 @@ export async function POST(request: Request, context: { params: Promise<{ code: 
     } else if (action === "rematch") {
       if (me.id !== room.hostPlayerId || room.phase !== "finished") return apiError("Only the host can start a rematch.", 403);
       await clearMatchData(code);
+      if (room.gameMode === "spotlight") {
+        const { error: playerError } = await database.from("players").update({ score: 0 }).eq("room_code", code);
+        if (playerError) throw playerError;
+      }
       const { error } = await database
         .from("rooms")
         .update({ phase: "answering", round_number: 1, score_a: 0, score_b: 0, round_started_at: new Date().toISOString(), game_seed: crypto.randomUUID() })
         .eq("code", code);
       if (error) throw error;
     } else if (action === "remake-teams") {
-      if (me.id !== room.hostPlayerId || room.phase !== "finished") return apiError("Only the host can remake teams.", 403);
+      if (me.id !== room.hostPlayerId || room.phase !== "finished") return apiError("Only the host can return to the lobby.", 403);
       await clearMatchData(code);
-      const { error: playerError } = await database.from("players").update({ team: null }).eq("room_code", code);
+      const { error: playerError } = await database.from("players").update({ team: null, score: 0 }).eq("room_code", code);
       if (playerError) throw playerError;
       const { error: roomError } = await database
         .from("rooms")
-        .update({ phase: "lobby", round_number: 0, score_a: 0, score_b: 0, round_started_at: null })
+        .update({ phase: "lobby", game_mode: "teams", round_number: 0, score_a: 0, score_b: 0, round_started_at: null })
         .eq("code", code);
       if (roomError) throw roomError;
     } else {

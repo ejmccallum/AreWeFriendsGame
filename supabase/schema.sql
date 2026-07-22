@@ -11,6 +11,8 @@ create table if not exists rooms (
   score_a integer not null default 0,
   score_b integer not null default 0,
   game_seed text not null default gen_random_uuid()::text,
+  game_mode text not null default 'teams' check (game_mode in ('teams', 'spotlight')),
+  rounds_per_player integer not null default 3 check (rounds_per_player between 3 and 6),
   created_at timestamptz not null default now()
 );
 
@@ -19,6 +21,7 @@ create table if not exists players (
   room_code text not null references rooms(code) on delete cascade,
   display_name text not null check (char_length(display_name) between 1 and 24),
   team text check (team in ('a', 'b')),
+  score integer not null default 0,
   joined_at timestamptz not null default now()
 );
 
@@ -52,3 +55,8 @@ alter table round_answers enable row level security;
 alter table round_votes enable row level security;
 
 alter table rooms add column if not exists game_seed text not null default gen_random_uuid()::text;
+alter table rooms add column if not exists game_mode text not null default 'teams' check (game_mode in ('teams', 'spotlight'));
+alter table rooms add column if not exists rounds_per_player integer not null default 3 check (rounds_per_player between 3 and 6);
+alter table players add column if not exists score integer not null default 0;
+alter table rooms drop constraint if exists rooms_round_limit_check;
+alter table rooms add constraint rooms_round_limit_check check (round_limit between 2 and 64);

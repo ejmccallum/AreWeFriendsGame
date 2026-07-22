@@ -1,7 +1,9 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { type GameState, type Team } from "@/lib/game";
+import { type GameMode, type GameState, type Team } from "@/lib/game";
+import { ModeLobby } from "./mode-lobby";
+import { SpotlightAnswerPhase, SpotlightReveal } from "./spotlight-mode";
 
 type Session = { roomCode: string; playerId: string };
 
@@ -27,6 +29,8 @@ export default function Home() {
   const [teams, setTeams] = useState<Record<string, Team>>({});
   const [durationSeconds, setDurationSeconds] = useState(60);
   const [roundLimit, setRoundLimit] = useState(8);
+  const [gameMode, setGameMode] = useState<GameMode>("teams");
+  const [roundsPerPlayer, setRoundsPerPlayer] = useState(3);
 
   const isHost = Boolean(game && session && game.room.hostPlayerId === session.playerId);
   useEffect(() => {
@@ -72,6 +76,7 @@ export default function Home() {
 
   useEffect(() => {
     if (!game || game.room.phase !== "lobby") return;
+    setGameMode(game.room.gameMode);
     setTeams((current) => {
       const next = { ...current };
       game.players.forEach((player, index) => {
@@ -154,17 +159,21 @@ export default function Home() {
         <div className="room-code">ROOM <strong>{game.room.code}</strong></div>
       </header>
       <section className="scoreboard">
-        {(["a", "b"] as Team[]).map((team) => (
+        {game.room.gameMode === "spotlight" ? game.players.slice().sort((first, second) => second.score - first.score).map((player, index) => (
+          <div className="score-card spotlight-score" key={player.id}>
+            <span>{index + 1}. {player.displayName}</span><strong>{player.score}</strong>
+          </div>
+        )) : (["a", "b"] as Team[]).map((team) => (
           <div className={`score-card ${team === "a" ? "tropic" : "thunder"}`} key={team}>
             <span>{teamName(team)}</span><strong>{scoreFor(game, team)}</strong>
           </div>
         ))}
       </section>
       {error && <p className="error game-error">{error}</p>}
-      {game.room.phase === "lobby" && <Lobby game={game} teams={teams} isHost={isHost} durationSeconds={durationSeconds} roundLimit={roundLimit} setTeams={setTeams} setDurationSeconds={setDurationSeconds} setRoundLimit={setRoundLimit} start={() => act("start", { durationSeconds, roundLimit, assignments: Object.entries(teams).map(([playerId, team]) => ({ playerId, team })) })} assign={() => act("assign", { assignments: Object.entries(teams).map(([playerId, team]) => ({ playerId, team })) })} busy={busy} />}
-      {game.room.phase === "answering" && <AnswerPhase game={game} prompt={game.currentPrompt ?? "Get ready for the next question"} answer={answer} setAnswer={setAnswer} submitted={game.hasAnswered} remainingSeconds={remainingSeconds} submit={() => act("answer", { answer })} busy={busy} />}
+      {game.room.phase === "lobby" && <ModeLobby game={game} teams={teams} isHost={isHost} gameMode={gameMode} roundsPerPlayer={roundsPerPlayer} durationSeconds={durationSeconds} roundLimit={roundLimit} setTeams={setTeams} setGameMode={(mode) => { setGameMode(mode); act("set-mode", { mode }); }} setRoundsPerPlayer={setRoundsPerPlayer} setDurationSeconds={setDurationSeconds} setRoundLimit={setRoundLimit} start={() => act("start", { mode: gameMode, durationSeconds, roundLimit, roundsPerPlayer, assignments: Object.entries(teams).map(([playerId, team]) => ({ playerId, team })) })} assign={() => act("assign", { assignments: Object.entries(teams).map(([playerId, team]) => ({ playerId, team })) })} busy={busy} />}
+      {game.room.phase === "answering" && (game.room.gameMode === "spotlight" ? <SpotlightAnswerPhase game={game} prompt={game.currentPrompt ?? "Get ready for the next question"} answer={answer} setAnswer={setAnswer} submitted={game.hasAnswered} remainingSeconds={remainingSeconds} submit={() => act("answer", { answer })} busy={busy} /> : <AnswerPhase game={game} prompt={game.currentPrompt ?? "Get ready for the next question"} answer={answer} setAnswer={setAnswer} submitted={game.hasAnswered} remainingSeconds={remainingSeconds} submit={() => act("answer", { answer })} busy={busy} />)}
       {game.room.phase === "voting" && <VotingPhase game={game} vote={(team, counts) => act("vote", { team, counts })} busy={busy} />}
-      {(game.room.phase === "reveal" || game.room.phase === "finished") && <RevealPhase game={game} isHost={isHost} next={() => act("next")} rematch={() => act("rematch")} remakeTeams={() => act("remake-teams")} busy={busy} />}
+      {(game.room.phase === "reveal" || game.room.phase === "finished") && (game.room.gameMode === "spotlight" ? <SpotlightReveal game={game} isHost={isHost} next={() => act("next")} rematch={() => act("rematch")} returnToLobby={() => act("remake-teams")} busy={busy} /> : <RevealPhase game={game} isHost={isHost} next={() => act("next")} rematch={() => act("rematch")} remakeTeams={() => act("remake-teams")} busy={busy} />)}
     </main>
   );
 }

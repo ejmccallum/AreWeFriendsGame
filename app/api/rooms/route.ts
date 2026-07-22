@@ -62,7 +62,7 @@ export async function POST(request: Request) {
         .select("id", { count: "exact", head: true })
         .eq("room_code", code);
       if (countError) throw countError;
-      if ((count ?? 0) >= 4) return NextResponse.json({ error: "This room is full." }, { status: 409 });
+      if ((count ?? 0) >= 8) return NextResponse.json({ error: "This room is full." }, { status: 409 });
 
       const playerId = crypto.randomUUID();
       const { error: playerError } = await database.from("players").insert({

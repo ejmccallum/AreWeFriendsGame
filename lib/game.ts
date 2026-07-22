@@ -1,10 +1,12 @@
 export type Team = "a" | "b";
+export type GameMode = "teams" | "spotlight";
 export type Phase = "lobby" | "answering" | "voting" | "reveal" | "finished";
 
 export type Player = {
   id: string;
   displayName: string;
   team: Team | null;
+  score: number;
   joinedAt: string;
 };
 
@@ -19,6 +21,8 @@ export type Room = {
   scoreA: number;
   scoreB: number;
   gameSeed: string;
+  gameMode: GameMode;
+  roundsPerPlayer: number;
 };
 
 export type TeamResult = {
@@ -42,6 +46,13 @@ export type GameState = {
   hasAnswered: boolean;
   currentPrompt: string | null;
   teamResults: TeamResult[];
+  spotlight: SpotlightState | null;
+};
+
+export type SpotlightState = {
+  answerer: Player | null;
+  turnForAnswerer: number;
+  entries: { playerId: string; playerName: string; answer: string; matched: boolean | null }[];
 };
 
 export const questionTemplates = [
